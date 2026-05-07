@@ -7,8 +7,24 @@ import qualified Data.HashMap.Lazy as M
 import Types
 
 eval :: Expr -> Env -> Value
-eval (ENum i) _ = VInt i
-eval _        _ = error "Interp: eval not yet implemented for this Expr"
+eval (ENum i)    _   = VInt i
+eval (EVar x)    env = case M.lookup x env of
+  Just v  -> v
+  Nothing -> error ("Unbound variable: " ++ x)
+eval (EPack t a) _   = VPack t a []
+eval (ELam ps b) env = VClos ps b env
+eval (EAp f x)   env = apply (eval f env) (eval x env)
+eval _           _   = error "Interp: eval not yet implemented for this Expr"
+
+apply :: Value -> Value -> Value
+apply (VClos (p:ps) body env) v =
+  let env' = M.insert p v env
+  in if null ps then eval body env' else VClos ps body env'
+apply (VClos [] _ _) _ =
+  error "apply: closure already saturated"
+apply (VPack t a args) v = VPack t a (args ++ [v])
+apply other _ =
+  error ("apply: cannot apply non-function value: " ++ show other)
 
 -- Use this function as your top-level entry point so you don't break `app/Main.hs`
 
