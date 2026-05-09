@@ -1,3 +1,90 @@
+ Can you explain why we need to versions of let, one recursive and one non-recursive?                                                                                                                                                
+                                                                                       
+⏺ Because they have different scoping rules — and each rule is the right one in different situations.                                                                                                                                 
+                                                                                                                                                                                                                                    
+  The core difference                                                                                                                                                                                                                 
+   
+  Both forms bind names to expressions and then evaluate a body. The question is: what env does each RHS see?                                                                                                                         
+                                                            
+  - let — each RHS sees the env before this binding is added. Specifically, the env extended with all previous let bindings, but not the current one or any later ones.                                                               
+  - letrec — all RHSs see the env extended with all the bindings (themselves and each other).
+                                                                                                                                                                                                                                      
+  That single rule difference is what makes some programs work in one form and break in the other.                                                                                                                                    
+                                                                                                                                                                                                                                      
+  Where let is right and letrec is wrong                                                                                                                                                                                              
+                                                            
+  The spec's hypotsq example:                                                                                                                                                                                                         
+                                                            
+  hypotsq x y =                                                                                                                                                                                                                       
+    let a = x * x ;                                         
+        a = a + y * y
+     in a                                                                                                                                                                                                                             
+  
+  Under let:                                                                                                                                                                                                                          
+  - First a = x * x evaluates in {x, y} → a := x²           
+  - Second a = a + y * y evaluates in {x, y, a := x²}. The a on the RHS refers to the previous a (= x²). New value: x² + y².                                                                                                          
+  - Body sees a = x² + y². Works.                                                                                           
+                                                                                                                                                                                                                                      
+  Under letrec, same code:                                                                                                                                                                                                            
+  - Both a definitions are bound in the same env.                                                                                                                                                                                     
+  - The second a references "itself" — a = a + y*y is a = (...whatever a is...) + y*y. Forcing it loops forever.                                                                                                                      
+                                                                                                                
+  So: when you want to shadow / sequentially refine a name, you need let's left-to-right semantics.                                                                                                                                   
+                                                                                                                                                                                                                                      
+  Where letrec is right and let is wrong                                                                                                                                                                                              
+                                                                                                                                                                                                                                      
+  The spec's fuzz example:                                                                                                                                                                                                            
+  
+  fuzz a =                                                                                                                                                                                                                            
+    letrec b = c + a ;                                      
+           d = b + a ;                                                                                                                                                                                                                
+           c = a + a
+        in a + b + c + d                                                                                                                                                                                                              
+                                                                                                                                                                                                                                      
+  Under letrec, all three of b, c, d see each other. b references c, c is defined later — fine, because letrec makes the whole group visible at once. fuzz 1 returns 10.                                                              
+                                                                                                                                                                                                                                      
+  Under let:                                                                                                                                                                                                                          
+  - b = c + a evaluates in {a}. There's no c yet → unbound variable.
+                                                                                                                                                                                                                                      
+  And the canonical case — recursion:
+                                                                                                                                                                                                                                      
+  main = letrec fact = \n . case n == 0 of <2> -> 1 ; <1> -> n * fact (n - 1)
+         in fact 5                                                                                                                                                                                                                    
+                                                            
+  The body of fact mentions fact. Under let, that inner fact would refer to whatever was in scope before fact was bound — usually nothing, so it's an unbound variable. Under letrec, fact's body sees the env that contains fact.    
+  Recursion works.                                          
+                                                                                                                                                                                                                                      
+  Same story for mutual recursion between two let-bound names — only letrec can express it.                                                                                                                                           
+  
+  Why not just always use letrec?                                                                                                                                                                                                     
+                                                            
+  You could, but you'd lose two real things:                                                                                                                                                                                          
+                                                            
+  1. Safe shadowing of an outer name with the same name (the hypotsq example). letrec would self-reference instead of shadow.                                                                                                         
+  2. Detecting accidental cycles. A let that mentions a yet-undefined name fails immediately with "unbound variable" — a clear error. The same code under letrec either silently works (if the cycle resolves through laziness) or
+  loops at runtime when the value is forced. The first is much easier to debug.                                                                                                                                                       
+                                                            
+  So having both is a deliberate language design: let for safe sequential refinement, letrec for recursion and mutual reference.                                                                                                      
+                                                            
+  How this maps to our implementation                                                                                                                                                                                                 
+                                                            
+  The two eval cases are nearly identical in code but completely different in what env the RHS thunk closes over:                                                                                                                     
+  
+  -- let: foldl threads the env left-to-right.                                                                                                                                                                                        
+  -- Each `eval rhs e` closes over `e` = env so far, NOT the final env.                                                                                                                                                               
+  eval (ELet False defs body) env =                                                                                                                                                                                                   
+    let env' = foldl (\e (n, rhs) -> M.insert n (eval rhs e) e) env defs                                                                                                                                                              
+    in eval body env'                                                                                                                                                                                                                 
+                                                                                                                                                                                                                                      
+  -- letrec: every `eval rhs env'` closes over env', the very env we're building.                                                                                                                                                     
+  -- Lazy evaluation lets the references resolve correctly when finally forced.
+  eval (ELet True defs body) env =                                                                                                                                                                                                    
+    let env'  = M.union defs' env                           
+        defs' = M.fromList [(n, eval rhs env') | (n, rhs) <- defs]                                                                                                                                                                    
+    in eval body env'                                       
+                                                                                                                                                                                                                                      
+  The whole semantic difference between the two forms boils down to which env each RHS thunk captures — and Haskell's laziness is doing the heavy lifting in the letrec case to make the self-reference resolve.   
+
 In the context of using VBool or VPack for booleans, and EBinop vs primitive closures
 
 What are the pros and cons of each option of the open design question? I tend to value simplicity and whatever approach has a lower probability of introducing bugs in the future                                                                                           
@@ -167,3 +254,92 @@ What are the pros and cons of each option of the open design question? I tend to
       73 +```                                                                                                                                                                                                                  
       74 +                                                                                                                                                                                                                     
       75 +Sample programs are in `../core-files/` and `../core-files/parser-tests/`.                
+
+Can you explain the difference between VPrim, VClos, and VPack?                                                                                                                                                                     
+                                                                  
+⏺ All three are "callable" runtime values that share the same currying machinery, but they represent different things and behave differently when fully applied.                                                                      
+                                                                                                                                                                                                                                    
+  What each represents                                                                                                                                                                                                                
+   
+  ┌───────────────────────┬─────────────────────────────────────────────────────┬─────────────────────────────────────────┐                                                                                                           
+  │        Variant        │                     Represents                      │         Saturation triggers...          │
+  ├───────────────────────┼─────────────────────────────────────────────────────┼─────────────────────────────────────────┤                                                                                                           
+  │ VClos [Name] Expr Env │ A user-written function (lambda or supercombinator) │ eval body env' — runs Core code         │
+  ├───────────────────────┼─────────────────────────────────────────────────────┼─────────────────────────────────────────┤                                                                                                           
+  │ VPack Int Int [Value] │ A data constructor (e.g. Just 4, Cons x xs)         │ nothing — it's just data                │                                                                                                           
+  ├───────────────────────┼─────────────────────────────────────────────────────┼─────────────────────────────────────────┤                                                                                                           
+  │ VPrim Name [Value]    │ A built-in operator (+, <=, &, etc.)                │ applyPrim name args — runs Haskell code │                                                                                                           
+  └───────────────────────┴─────────────────────────────────────────────────────┴─────────────────────────────────────────┘                                                                                                           
+                                                            
+  Their fields side by side                                                                                                                                                                                                           
+                                                            
+  VClos [Name]    Expr      Env       -- params still to bind, body, captured env
+  VPack Int       Int       [Value]   -- tag, arity, args collected so far                                                                                                                                                            
+  VPrim Name                [Value]   -- operator name, args collected so far                                                                                                                                                         
+                                                                                                                                                                                                                                      
+  Notice the structural similarity: each carries some identity (params/tag/name), an arity-ish quantity, and accumulated state. That's why they all flow through the same apply function.                                             
+                                                            
+  What apply does for each                                                                                                                                                                                                            
+                                                            
+  When EAp evaluates f and arg, it dispatches on f:                                                                                                                                                                                   
+                                                            
+  apply (VClos (p:ps) body env) v =                                                                                                                                                                                                   
+    let env' = M.insert p v env                                                                                                                                                                                                       
+    in if null ps then eval body env' else VClos ps body env'                                                                                                                                                                         
+                                                                                                                                                                                                                                      
+  apply (VPack t a args) v = VPack t a (args ++ [v])                                                                                                                                                                                  
+                                                            
+  apply (VPrim n args) v =                                                                                                                                                                                                            
+    let args' = args ++ [v]                                 
+    in if length args' == 2 then applyPrim n args' else VPrim n args'
+                                                                                                                                                                                                                                      
+  Three different "what to do when saturated":                                                                                                                                                                                        
+                                                                                                                                                                                                                                      
+  - VClos with no params left → switch to evaluating the body in the extended env. The work is Core code.                                                                                                                             
+  - VPack → there's no work to do. A fully-applied constructor is just data; we keep accumulating args without ever "running" anything. case later destructures it.
+  - VPrim with two args → call out to applyPrim, which is a switch over operator names doing native Haskell arithmetic / comparison / boolean ops.                                                                                    
+                                                                                                                                                                                                                                      
+  A concrete example                                                                                                                                                                                                                  
+                                                                                                                                                                                                                                      
+  Take add 3 + 4 where add x y = x + y.                                                                                                                                                                                               
+   
+  ┌──────────────────────────────────────────────────────┬───────────────────────────┬───────────────────────────────────────────────────────────┐                                                                                    
+  │                         Step                         │        Expression         │                      Resulting Value                      │
+  ├──────────────────────────────────────────────────────┼───────────────────────────┼───────────────────────────────────────────────────────────┤                                                                                    
+  │ Parse add                                            │ EVar "add"                │ VClos ["x","y"] body globalEnv                            │
+  ├──────────────────────────────────────────────────────┼───────────────────────────┼───────────────────────────────────────────────────────────┤                                                                                    
+  │ Apply to 3                                           │ EAp (EVar "add") (ENum 3) │ VClos ["y"] body env+{x=3} (still partial)                │                                                                                    
+  ├──────────────────────────────────────────────────────┼───────────────────────────┼───────────────────────────────────────────────────────────┤                                                                                    
+  │ Apply to 4                                           │ EAp ... (ENum 4)          │ params exhausted → eval body env+{x=3,y=4}                │                                                                                    
+  ├──────────────────────────────────────────────────────┼───────────────────────────┼───────────────────────────────────────────────────────────┤                                                                                    
+  │ body is EAp (EAp (EBinop "+") (EVar "x")) (EVar "y") │                           │                                                           │
+  ├──────────────────────────────────────────────────────┼───────────────────────────┼───────────────────────────────────────────────────────────┤                                                                                    
+  │ Eval EBinop "+"                                      │                           │ VPrim "+" []                                              │
+  ├──────────────────────────────────────────────────────┼───────────────────────────┼───────────────────────────────────────────────────────────┤                                                                                    
+  │ Apply to VInt 3                                      │                           │ VPrim "+" [VInt 3] (partial)                              │
+  ├──────────────────────────────────────────────────────┼───────────────────────────┼───────────────────────────────────────────────────────────┤                                                                                    
+  │ Apply to VInt 4                                      │                           │ arity 2 reached → applyPrim "+" [VInt 3, VInt 4] → VInt 7 │
+  └──────────────────────────────────────────────────────┴───────────────────────────┴───────────────────────────────────────────────────────────┘                                                                                    
+                                                            
+  Now consider Just 4:                                                                                                                                                                                                                
+                                                            
+  ┌────────────────────────────────────────────────┬────────────────────┐
+  │                      Step                      │  Resulting Value   │
+  ├────────────────────────────────────────────────┼────────────────────┤
+  │ Parse Just (a constructor with tag 1, arity 1) │ VPack 1 1 []       │
+  ├────────────────────────────────────────────────┼────────────────────┤
+  │ Apply to VInt 4                                │ VPack 1 1 [VInt 4] │                                                                                                                                                             
+  └────────────────────────────────────────────────┴────────────────────┘                                                                                                                                                             
+                                                                                                                                                                                                                                      
+  That's it — no further work happens. The VPack just sits there until something cases on it.                                                                                                                                         
+                                                            
+  Why three variants instead of one                                                                                                                                                                                                   
+                                                            
+  You could imagine unifying them, but each has something the others don't:                                                                                                                                                           
+                                                            
+  - VClos needs an Expr body and a captured Env.                                                                                                                                                                                      
+  - VPack needs a tag for case to dispatch on.              
+  - VPrim needs a name to look up the Haskell operation.                                                                                                                                                                              
+                                                                                                                                                                                                                                      
+  And once saturated, they do completely different things: evaluate Core, become inert data, or call into Haskell. Keeping them separate makes each behavior a single line in apply instead of a tangled conditional.        
+
