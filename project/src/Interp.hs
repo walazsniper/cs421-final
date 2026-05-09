@@ -3,6 +3,7 @@
 module Interp where
 
 import qualified Data.HashMap.Lazy as M
+import Data.List (find)
 
 import Types
 
@@ -22,7 +23,16 @@ eval (ELet True defs body) env =
   let env'  = M.union defs' env
       defs' = M.fromList [(n, eval rhs env') | (n, rhs) <- defs]
   in eval body env'
-eval _           _   = error "Interp: eval not yet implemented for this Expr"
+eval (ECase scrut alts) env =
+  case eval scrut env of
+    VPack tag _ args ->
+      case find (\(t, _, _) -> t == tag) alts of
+        Just (_, params, body) ->
+          let bind e (n, v) = if n == "_" then e else M.insert n v e
+              env'          = foldl bind env (zip params args)
+          in eval body env'
+        Nothing -> error ("case: no matching alt for tag " ++ show tag)
+    other -> error ("case: scrutinee is not a constructor: " ++ show other)
 
 apply :: Value -> Value -> Value
 apply (VClos (p:ps) body env) v =
