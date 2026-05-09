@@ -15,6 +15,13 @@ eval (EPack t a) _   = VPack t a []
 eval (ELam ps b) env = VClos ps b env
 eval (EAp f x)   env = apply (eval f env) (eval x env)
 eval (EBinop n)  _   = VPrim n []
+eval (ELet False defs body) env =
+  let env' = foldl (\e (n, rhs) -> M.insert n (eval rhs e) e) env defs
+  in eval body env'
+eval (ELet True defs body) env =
+  let env'  = M.union defs' env
+      defs' = M.fromList [(n, eval rhs env') | (n, rhs) <- defs]
+  in eval body env'
 eval _           _   = error "Interp: eval not yet implemented for this Expr"
 
 apply :: Value -> Value -> Value
