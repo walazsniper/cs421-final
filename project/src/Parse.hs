@@ -174,8 +174,14 @@ defn = do
   e <- expr
   return (n, e)
 
+sepByTry1 :: Parser a -> Parser sep -> Parser [a]
+sepByTry1 p sep = (:) <$> p <*> many (try (sep >> p))
+
+sepByTry :: Parser a -> Parser sep -> Parser [a]
+sepByTry p sep = sepByTry1 p sep <|> return []
+
 defns :: Parser [(Name, Expr)]
-defns = defn `sepBy1` symbol ";"
+defns = defn `sepByTry1` symbol ";"
 
 caseExpr :: Parser Expr
 caseExpr = do
@@ -194,7 +200,7 @@ alt = do
   return (t, ps, e)
 
 alts :: Parser [(Int, [Name], Expr)]
-alts = alt `sepBy1` symbol ";"
+alts = alt `sepByTry1` symbol ";"
 
 lamExpr :: Parser Expr
 lamExpr = do
@@ -257,7 +263,7 @@ scDeclTail name = do
 core :: Parser Core
 core = do
   spaces
-  decls <- topDecl `sepBy` symbol ";"
+  decls <- topDecl `sepByTry` symbol ";"
   eof
   return $ M.fromList [(n, d) | Just d@(n, _, _) <- decls]
 
