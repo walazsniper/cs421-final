@@ -58,3 +58,112 @@ What are the pros and cons of each option of the open design question? I tend to
   - When debugging, EVar "+" blends in with user variables — easy to misread.                                                                                                                             
                                                                                                                                                                                                                                                                               
   My recommendation: EBinop. The "extra constructor" cost is tiny, and the "must remember to thread initial env" failure mode of the alternative is exactly the kind of bug that'd take an hour to track down later. EBinop keeps the operator world isolated and obvious.
+
+  Help with writing a loop to run all test cases
+
+  Can you write the loop?                                                                                                                                                                                                             
+                                                                                                                                                                                                                                      
+⏺ Here's a loop that runs each test file and classifies it as parse-success or parse-failure. Run from inside project/:                                                                                                               
+                                                                                                                                                                                                                                      
+  stack build  # build once up front so per-iter output is clean                                                                                                                                                                      
+                                  
+  for f in ../core-files/parser-tests/*.core; do                                                                                                                                                                                      
+    name=$(basename "$f")                      
+    out=$(stack run < "$f" 2>&1)                                                                                                                                                                                                      
+    if echo "$out" | grep -q '^"Core" (line'; then  
+      echo "PARSE FAIL: $name"                                                                                                                                                                                                        
+      echo "$out" | grep -A2 '^"Core"' | sed 's/^/    /'        
+    else                                                                                                                                                                                                                              
+      echo "PARSE OK:   $name"                                                                                                                                                                                                        
+    fi                                              
+  done
+
+  Updating the README
+
+  ❯ Can you update the @README.md so that it includes instructions on how to run the program, what it does, and a brief summary of it?                                                                                                  
+  ⎿  Read README.md (14 lines)                                                                                                            
+                                                                                                                                                                                                                                      
+  Read 1 file (ctrl+o to expand)                                                                                                                                                                                                    
+                                                                                                                                                                                                                                      
+⏺ Write(README.md)                                                                                                                                                                                                                    
+  ⎿  Added 67 lines, removed 5 lines                                                                                                                                                                                                  
+       1 -Use `stack run` to run this.                                                                                                                                                                                                
+       1 +# Core Interpreter                                                                                                                                                                                                          
+       2                                                                                                                                                                                                                              
+       3 -You can use file redirection to test things simply.                                                                                                                                                                         
+       3 +A Haskell interpreter for **Core**, a small functional intermediate language                                                                                                                                                
+       4 +from *Implementing Functional Languages: A Tutorial* (Peyton Jones & Lester).                                                                                                                                               
+       5 +Built as the CS 421 final project.                                                                                                                                                                                          
+       6  
+       5 -E.g.                                                                                                                                                                                                                 
+       7 +## What Core looks like                                                                                                                                                                                              
+       8  
+       9 +A program is a list of supercombinator declarations separated by `;`.                                                                                                                                                
+      10 +Execution starts at `main`, which must take no arguments.                                                                                                                                                            
+      11 +                                                                                                                                                                                                                     
+      12  ```
+       8 -stack run < ../core-files/test.1.in                                                                                                                                                                                  
+      13 +maybe ::= Just num | None ;                                                                                                                                                                                          
+      14 +fromMaybe d m = case m of                                                                                                                                                                                            
+      15 +    <1> x -> x ;                                                                                                                                                                                                     
+      16 +    <2> -> d                                                                                                                                                                                                         
+      17 +;                                                                                                                                                                                                                    
+      18 +main = fromMaybe 0 (Just 42)                                                                                                                                                                                         
+      19 +```                                                                                                                                                                                                                  
+      20 +                                                                                                                                                                                                                     
+      21 +The language supports:                                                                                                                                                                                               
+      22 +- Numbers, variables, lambdas (`\x . body`), application                                                                                                                                                             
+      23 +- `let` and `letrec` with the usual scoping                                                                                                                                                                          
+      24 +- Algebraic data types, compiled to `Pack{tag, arity}` constructors                                                                                                                                                  
+      25 +- `case` for pattern matching on constructors                                                                                                                                                                        
+      26 +- Binary operators: `+ - * /`, comparators (`< <= == ~= >= >`), `&`, `|`                                                                                                                                             
+      27 +                                                                                                                                                                                                                     
+      28 +The full grammar lives in `../docs/core.org`.                                                                                                                                                                        
+      29 +                                                                                                                                                                                                                     
+      30 +## Running                                                                                                                                                                                                           
+      31 +                                                                                                                                                                                                                     
+      32 +Build once, then pipe a Core program in on stdin:                                                                                                                                                                    
+      33 +                                                                                                                                                                                                                     
+      34 +```                                                                                                                                                                                                                  
+      35 +stack build                                                                                                                                                                                                          
+      36 +stack run < ../core-files/parser-tests/19-call-precedence.core                                                                                                                                                       
+      37 +```                                                                                                                                                                                                                  
+      38 +                                                                                                                                                                                                                     
+      39 +You'll see:                                                                                                                                                                                                          
+      40 +                                                                                                                                                                                                                     
+      41 +```                                                                                                                                                                                                                  
+      42  Welcome to your Core interpreter!
+      43  
+      44  Enter your program here and hit ^D when done.
+      12 -"42"                                                                                                                                                                                                                 
+      45 +"216"                                                                                                                                                                                                                
+      46  ```
+      47 +                                                                                                                                                                                                                     
+      48 +The quoted string is the value of `main`. You can also run interactively                                                                                                                                             
+      49 +(type a program, hit `^D` when done).                                                                                                                                                                                
+      50 +                                                                                                                                                                                                                     
+      51 +## How it works                                                                                                                                                                                                      
+      52 +                                                                                                                                                                                                                     
+      53 +The pipeline is read → parse → evaluate → print:                                                                                                                                                                     
+      54 +                                                                                                                                                                                                                     
+      55 +1. **Parse** (`src/Parse.hs`) — Parsec turns source into a `HashMap Name Decl`.                                                                                                                                      
+      56 +   Algebraic type declarations are stripped at parse time and their                                                                                                                                                  
+      57 +   constructors registered in user state with fresh tags, so `Just`, `None`,                                                                                                                                         
+      58 +   etc. become `EPack tag arity` nodes in the AST.                                                                                                                                                                   
+      59 +2. **Evaluate** (`src/Interp.hs`) — a value-based interpreter. Closures                                                                                                                                              
+      60 +   (`VClos`), constructor values (`VPack`), and primitive operators                                                                                                                                                  
+      61 +   (`VPrim`) all share the same currying machinery in `apply`. `letrec` and                                                                                                                                          
+      62 +   top-level mutual recursion both tie the knot using Haskell's laziness.                                                                                                                                            
+      63 +3. **Print** (`app/Main.hs`) — evaluates `main`'s body in the global env and                                                                                                                                         
+      64 +   prints the resulting value.                                                                                                                                                                                       
+      65 +                                                                                                                                                                                                                     
+      66 +## Project layout                                                                                                                                                                                                    
+      67 +                                                                                                                                                                                                                     
+      68 +```                                                                                                                                                                                                                  
+      69 +src/Types.hs   AST, Value type, Env type                                                                                                                                                                             
+      70 +src/Parse.hs   Parsec-based parser                                                                                                                                                                                   
+      71 +src/Interp.hs  evaluator, apply, binop primitives                                                                                                                                                                    
+      72 +app/Main.hs    read-parse-eval-print driver                                                                                                                                                                          
+      73 +```                                                                                                                                                                                                                  
+      74 +                                                                                                                                                                                                                     
+      75 +Sample programs are in `../core-files/` and `../core-files/parser-tests/`.                
