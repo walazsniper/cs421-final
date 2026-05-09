@@ -70,8 +70,15 @@ run prog =
   case M.lookup "main" prog of
     Nothing -> error "Supercombinator main not defined."
     Just (_, [], mainBody) ->
-      case eval mainBody M.empty of
+      case eval mainBody globalEnv of
         VInt  i -> show i
         VBool b -> show b
         v       -> show v
     Just _ -> error "Supercombinator main must take no arguments."
+  where
+    globalEnv = M.fromList
+      [ (name, mkSc params body)
+      | (name, (_, params, body)) <- M.toList prog
+      ]
+    mkSc []     body = eval body globalEnv
+    mkSc params body = VClos params body globalEnv
